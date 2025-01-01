@@ -1,20 +1,20 @@
 'use client';
 
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: any[] }) => Promise<any>;
-      on: (event: string, callback: (params: any) => void) => void;
-    };
-  }
-}
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+
+interface WindowWithEthereum extends Window {
+  ethereum?: {
+    request: (args: { method: string; params?: any[] }) => Promise<any>;
+    on: (event: string, callback: (params: any) => void) => void;
+  }
+}
+
+declare const window: WindowWithEthereum;
 
 const AT3_ADDRESS = '0x22a79a08ddb74a9f1a4ebe5da75300ad9f1aed76';
 const USDT_ADDRESS = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F';
@@ -30,6 +30,13 @@ const SwapDApp: React.FC = () => {
   const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy');
   const [usdtBalance, setUsdtBalance] = useState<string>('0.00');
   const [at3Balance, setAt3Balance] = useState<string>('0.00');
+
+  const refreshData = async () => {
+    if (account) {
+      await getBalances(account);
+      await getPrice();
+    }
+  };
 
   const getBalances = async (addr: string) => {
     if (!window.ethereum) return;
@@ -58,7 +65,7 @@ const SwapDApp: React.FC = () => {
       const at3Bal = parseInt(at3Result, 16) / 1e18;
       setAt3Balance(at3Bal.toFixed(2));
     } catch (err) {
-      console.error('Balance error:', err);
+      console.error('Error balances:', err);
     }
   };
 
@@ -95,14 +102,14 @@ const SwapDApp: React.FC = () => {
       const tokenPrice = (usdtReserve / 1e6) / (at3Reserve / 1e18);
       setPrice(tokenPrice.toFixed(6));
       setUpdateTime(new Date().toLocaleTimeString());
-    } catch (error) {
-      console.error('Price error:', error);
+    } catch (err) {
+      console.error('Error price:', err);
     }
   };
 
   const connectWallet = async () => {
     if (!window.ethereum) {
-      setError('Please install MetaMask');
+      setError('Instala MetaMask');
       return;
     }
 
@@ -111,10 +118,10 @@ const SwapDApp: React.FC = () => {
       const accounts = await eth.request({ method: 'eth_requestAccounts' });
       const newAccount = accounts[0];
       setAccount(newAccount);
-      
+
       const chainId = await eth.request({ method: 'eth_chainId' });
       if (chainId !== '0x89') {
-        setError('Switch to Polygon network');
+        setError('Conecta a Polygon');
         try {
           await eth.request({
             method: 'wallet_switchEthereumChain',
@@ -138,7 +145,7 @@ const SwapDApp: React.FC = () => {
                 }]
               });
             } catch (addError) {
-              setError('Failed to add Polygon');
+              setError('Error al agregar Polygon');
             }
           }
         }
@@ -146,13 +153,19 @@ const SwapDApp: React.FC = () => {
 
       await getBalances(newAccount);
     } catch (err: any) {
-      setError('Connection failed');
+      setError('Error de conexion');
     }
   };
 
   useEffect(() => {
-    const setup = () => {
-      if (!window.ethereum) return;
+    if (account) {
+      const interval = setInterval(refreshData, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [account]);
+
+  useEffect(() => {
+    if (window.ethereum) {
       const eth = window.ethereum;
 
       eth.on('accountsChanged', async (accounts: string[]) => {
@@ -168,18 +181,14 @@ const SwapDApp: React.FC = () => {
 
       eth.on('chainChanged', (chainId: string) => {
         if (chainId !== '0x89') {
-          setError('Switch to Polygon network');
+          setError('Conecta a Polygon');
         } else {
           setError('');
         }
       });
-    };
 
-    setup();
-    getPrice();
-
-    const interval = setInterval(getPrice, 30000);
-    return () => clearInterval(interval);
+      getPrice();
+    }
   }, []);
 
   return (
@@ -188,7 +197,7 @@ const SwapDApp: React.FC = () => {
         <CardHeader className="pb-3 border-b border-slate-800">
           <div className="flex justify-between items-center mb-4">
             <CardTitle className="text-lg font-medium text-gray-200">
-              AT3 Swap
+              ATOMICO 3
             </CardTitle>
             {account && (
               <button 
@@ -196,7 +205,7 @@ const SwapDApp: React.FC = () => {
                 className="text-sm text-gray-400 hover:text-gray-300 flex items-center"
               >
                 {account.slice(0, 6)}...{account.slice(-4)}
-                <span className="ml-2">Disconnect</span>
+                <span className="ml-2">Desconectar</span>
               </button>
             )}
           </div>
@@ -206,14 +215,14 @@ const SwapDApp: React.FC = () => {
               className={`flex-1 ${tradeType === 'buy' ? 'bg-slate-800 text-white' : 'text-gray-400'}`}
               onClick={() => setTradeType('buy')}
             >
-              Buy
+              Comprar
             </Button>
             <Button 
               variant="ghost" 
               className={`flex-1 ${tradeType === 'sell' ? 'bg-slate-800 text-white' : 'text-gray-400'}`}
               onClick={() => setTradeType('sell')}
             >
-              Sell
+              Vender
             </Button>
           </div>
         </CardHeader>
@@ -223,17 +232,27 @@ const SwapDApp: React.FC = () => {
               onClick={connectWallet}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
             >
-              Connect Wallet
+              Conectar Wallet
             </Button>
           ) : (
             <div className="space-y-4">              
               <div className="bg-slate-800 p-4 rounded-lg">
                 <div className="flex justify-between mb-2">
                   <span className="text-sm text-gray-400">
-                    {tradeType === 'buy' ? 'You Pay' : 'You Sell'}
+                    {tradeType === 'buy' ? 'Pagas' : 'Vendes'}
                   </span>
-                  <span className="text-sm text-gray-400">
-                    Balance: {usdtBalance}
+                  <span className="text-sm text-gray-400 flex items-center">
+                    <span>Balance: {usdtBalance} USDT</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-2 p-1 h-6 text-gray-400 hover:text-white"
+                      onClick={refreshData}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </Button>
                   </span>
                 </div>
                 <div className="flex items-center">
@@ -247,32 +266,20 @@ const SwapDApp: React.FC = () => {
                   <div className="flex items-center bg-slate-700 rounded-lg px-3 py-1">
                     <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" fill="#26A17B"/>
-                      <path d="M17.6 12.5c0-.3-.2-.4-.5-.4h-1v-1.3c0-1.1-.7-1.9-2.1-2.1V7.4h-.9v1.3h-.7V7.4h-.9v1.3H9.9v.9h.5c.4 0 .5.1.5.5v4.8c0 .3-.1.4-.5.4h-.5v.9h1.5v1.3h.9v-1.3h.7v1.3h.9v-1.3c1.5-.1 2.2-1 2.2-2.1v-1.3h1c.3 0 .5-.2.5-.4zm-2.4 1.8c0 .7-.4 1-1.2 1h-2v-2.1h2c.8 0 1.2.3 1.2 1v.1z" fill="white"/>
+                      <text x="12" y="16" textAnchor="middle" fill="white" fontSize="10">$</text>
                     </svg>
                     <span className="text-white">USDT</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-center">
-                <Button 
-                  variant="ghost" 
-                  className="rounded-full p-2 hover:bg-slate-800"
-                  onClick={() => setTradeType(tradeType === 'buy' ? 'sell' : 'buy')}
-                >
-                  <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-                  </svg>
-                </Button>
-              </div>
-
               <div className="bg-slate-800 p-4 rounded-lg">
                 <div className="flex justify-between mb-2">
                   <span className="text-sm text-gray-400">
-                    You Receive
+                    Recibes
                   </span>
                   <span className="text-sm text-gray-400">
-                    Balance: {at3Balance}
+                    Balance: {at3Balance} AT3
                   </span>
                 </div>
                 <div className="flex items-center">
@@ -286,7 +293,7 @@ const SwapDApp: React.FC = () => {
                   <div className="flex items-center bg-slate-700 rounded-lg px-3 py-1">
                     <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" fill="#3B82F6"/>
-                      <text x="12" y="15" textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">AT3</text>
+                      <text x="12" y="16" textAnchor="middle" fill="white" fontSize="8">AT3</text>
                     </svg>
                     <span className="text-white">AT3</span>
                   </div>
@@ -296,12 +303,14 @@ const SwapDApp: React.FC = () => {
               {price && (
                 <div className="bg-slate-800/50 p-3 rounded-lg">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Price:</span>
+                    <span className="text-gray-400">Precio:</span>
                     <span className="text-gray-300">1 AT3 = {price} USDT</span>
                   </div>
                   <div className="flex justify-between text-xs mt-1">
                     <span className="text-gray-500">QuickSwap</span>
-                    <span className="text-gray-500">Updated: {updateTime}</span>
+                    <span className="text-gray-500">
+                      Actualizado: {updateTime}
+                    </span>
                   </div>
                 </div>
               )}
@@ -314,7 +323,7 @@ const SwapDApp: React.FC = () => {
                   : 'bg-blue-600 hover:bg-blue-700 text-white'
                 }`}
               >
-                {loading ? 'Processing...' : tradeType === 'buy' ? 'Buy AT3' : 'Sell AT3'}
+                {loading ? 'Procesando...' : tradeType === 'buy' ? 'Comprar AT3' : 'Vender AT3'}
               </Button>
 
               {error && (
