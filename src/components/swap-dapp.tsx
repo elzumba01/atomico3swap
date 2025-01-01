@@ -14,7 +14,7 @@ const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 const ROUTER_ADDRESS = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff'; // QuickSwap Router
 const ATOMICO3_USDT_PAIR = '0x2e8f3b0e4ad32317f70f7f79a63a1538ded23fd4';
 
-// Router ABI m铆nimo para el swap
+// Router ABI mínimo para el swap
 const ROUTER_ABI = [
   {
     "inputs": [
@@ -31,12 +31,12 @@ const ROUTER_ABI = [
   }
 ];
 
-// Funci贸n auxiliar para codificar los datos del swap
+// Función auxiliar para codificar los datos del swap
 const encodeSwapData = (amountIn, amountOutMin, path, to, deadline) => {
   // Method ID for swapExactTokensForTokens (0x38ed1739)
   const methodId = '0x38ed1739';
   
-  // Convertir los n煤meros a hex strings de 32 bytes
+  // Convertir los números a hex strings de 32 bytes
   const amountInHex = amountIn.toString(16).padStart(64, '0');
   const amountOutMinHex = amountOutMin.toString(16).padStart(64, '0');
   const toAddressHex = to.slice(2).padStart(64, '0');
@@ -86,19 +86,19 @@ const SwapDApp = () => {
       symbol: 'USDT', 
       address: USDT_ADDRESS, 
       decimals: 6,
-      icon: '馃挷'
+      icon: '💲'
     },
     usdc: { 
       symbol: 'USDC', 
       address: USDC_ADDRESS, 
       decimals: 6,
-      icon: '馃挼'
+      icon: '💵'
     },
     at3: { 
       symbol: 'AT3', 
       address: ATOMICO3_ADDRESS, 
       decimals: 18,
-      icon: '馃敺'
+      icon: '🔷'
     }
   };
 
@@ -190,7 +190,7 @@ const SwapDApp = () => {
 
   const estimateGas = async (txParams) => {
     try {
-      console.log('Estimando gas para transacci贸n:', txParams);
+      console.log('Estimando gas para transacción:', txParams);
 
       // Primero obtener el precio actual del gas
       const gasPrice = await window.ethereum.request({
@@ -205,7 +205,7 @@ const SwapDApp = () => {
       });
       console.log('Gas estimado:', estimatedGas);
 
-      // A帽adir un 50% de margen al gas estimado para mayor seguridad
+      // Añadir un 50% de margen al gas estimado para mayor seguridad
       const gasLimit = Math.floor(parseInt(estimatedGas, 16) * 1.5).toString(16);
       console.log('Gas limit con margen:', gasLimit);
 
@@ -214,8 +214,8 @@ const SwapDApp = () => {
         gasPrice: gasPrice
       };
     } catch (err) {
-      console.error('Error detallado en estimaci贸n de gas:', err);
-      // Si falla la estimaci贸n, usar valores por defecto seguros
+      console.error('Error detallado en estimación de gas:', err);
+      // Si falla la estimación, usar valores por defecto seguros
       return {
         gas: '0x7A120', // 500,000 gas
         gasPrice: '0x2540BE400' // 10 GWEI
@@ -234,23 +234,23 @@ const SwapDApp = () => {
         });
 
         if (receipt) {
-          // Verificar si la transacci贸n fue exitosa
+          // Verificar si la transacción fue exitosa
           if (receipt.status === '0x1') {
             return true;
           } else {
-            throw new Error('Transacci贸n fallida');
+            throw new Error('Transacción fallida');
           }
         }
 
         // Esperar 2 segundos antes de intentar de nuevo
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (err) {
-        console.error('Error al verificar transacci贸n:', err);
+        console.error('Error al verificar transacción:', err);
         throw err;
       }
     }
     
-    throw new Error('Timeout esperando confirmaci贸n de la transacci贸n');
+    throw new Error('Timeout esperando confirmación de la transacción');
   };
 
   const executeSwap = async () => {
@@ -264,34 +264,34 @@ const SwapDApp = () => {
         throw new Error('Wallet no conectada');
       }
 
-      // Obtener direcci贸n del token que se est谩 vendiendo
+      // Obtener dirección del token que se está vendiendo
       const tokenAddress = tokens[tokenFrom].address;
       
       // Convertir el monto a la cantidad correcta de decimales
       const decimals = tokens[tokenFrom].decimals;
       const amountWithDecimals = Math.floor(parseFloat(inputAmount) * (10 ** decimals));
       
-      // Preparar datos de aprobaci贸n
+      // Preparar datos de aprobación
       const approveParams = {
         from: account,
         to: tokenAddress,
         data: `0x095ea7b3${ROUTER_ADDRESS.slice(2).padStart(64, '0')}${amountWithDecimals.toString(16).padStart(64, '0')}`
       };
 
-      // Estimar gas para la aprobaci贸n
+      // Estimar gas para la aprobación
       const approveGas = await estimateGas(approveParams);
       const approveData = {
         ...approveParams,
         ...approveGas
       };
 
-      // Enviar transacci贸n de aprobaci贸n
+      // Enviar transacción de aprobación
       const approveTxHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [approveData],
       });
 
-      // Esperar confirmaci贸n de la aprobaci贸n
+      // Esperar confirmación de la aprobación
       let approveConfirmed = false;
       while (!approveConfirmed) {
         const receipt = await window.ethereum.request({
@@ -306,7 +306,7 @@ const SwapDApp = () => {
       }
 
       // Crear la data para el swap
-      // Calcular el path correcto seg煤n la direcci贸n del swap
+      // Calcular el path correcto según la dirección del swap
       const path = [
         tokenFrom === 'at3' ? ATOMICO3_ADDRESS : (tokenFrom === 'usdt' ? USDT_ADDRESS : USDC_ADDRESS),
         tokenTo === 'at3' ? ATOMICO3_ADDRESS : (tokenTo === 'usdt' ? USDT_ADDRESS : USDC_ADDRESS)
@@ -318,7 +318,7 @@ const SwapDApp = () => {
       const amountOutMin = Math.floor(parseFloat(outputAmount) * 0.99 * (10 ** tokens[tokenTo].decimals));
       const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutos
 
-      console.log('Par谩metros del swap:', {
+      console.log('Parámetros del swap:', {
         tokenFrom,
         tokenTo,
         amountIn: amountWithDecimals,
@@ -351,13 +351,13 @@ const SwapDApp = () => {
         estimatedGas: swapGas
       });
 
-      // Enviar transacci贸n de swap
+      // Enviar transacción de swap
       const swapTxHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [swapData],
       });
 
-      // Esperar confirmaci贸n del swap
+      // Esperar confirmación del swap
       let swapConfirmed = false;
       while (!swapConfirmed) {
         const receipt = await window.ethereum.request({
@@ -371,11 +371,11 @@ const SwapDApp = () => {
         }
       }
 
-      // Actualizar balances despu茅s del swap
+      // Actualizar balances después del swap
       await updateBalances();
       
-      // Mostrar mensaje de 茅xito
-      setSuccess('隆Swap completado con 茅xito!');
+      // Mostrar mensaje de éxito
+      setSuccess('¡Swap completado con éxito!');
       
       // Limpiar campos
       setInputAmount('');
@@ -521,7 +521,7 @@ const SwapDApp = () => {
                     swapAnimation ? 'animate-spin' : ''
                   }`}
                 >
-                  鈫?
+                  ↓
                 </Button>
               </div>
 
