@@ -1,233 +1,474 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { AlertCircle } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '../components/ui/alert';
 
-interface WindowWithEthereum extends Window {
-  ethereum?: {
-    request: (args: { method: string; params?: any[] }) => Promise<any>;
-    on: (event: string, callback: (params: any) => void) => void;
-  }
-}
-
-declare const window: WindowWithEthereum;
-
-const AT3_ADDRESS = '0x22a79a08ddb74a9f1a4ebe5da75300ad9f1aed76';
+// Direcciones de contratos en Polygon
+const ATOMICO3_ADDRESS = '0x22a79a08ddb74a9f1a4ebe5da75300ad9f1aed76';
 const USDT_ADDRESS = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F';
-const PAIR_ADDRESS = '0x2e8f3b0e4ad32317f70f7f79a63a1538ded23fd4';
-const QUICKSWAP_ROUTER = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff';
+const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+const ROUTER_ADDRESS = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff'; // QuickSwap Router
+const ATOMICO3_USDT_PAIR = '0x2e8f3b0e4ad32317f70f7f79a63a1538ded23fd4';
 
-const SwapDApp: React.FC = () => {
-  const [account, setAccount] = useState<string>('');
-  const [amount, setAmount] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
-  const [price, setPrice] = useState<string | null>(null);
-  const [updateTime, setUpdateTime] = useState<string | null>(null);
-  const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy');
-  const [usdtBalance, setUsdtBalance] = useState<string>('0.00');
-  const [at3Balance, setAt3Balance] = useState<string>('0.00');
+// Router ABI m铆nimo para el swap
+const ROUTER_ABI = [
+  {
+    "inputs": [
+      {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+      {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+      {"internalType": "address[]", "name": "path", "type": "address[]"},
+      {"internalType": "address", "name": "to", "type": "address"},
+      {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+    ],
+    "name": "swapExactTokensForTokens",
+    "outputs": [{"internalType": "uint256[]", "name": "amounts", "type": "uint256[]"}],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+];
 
-  const refreshData = async () => {
-    if (account) {
-      await getBalances(account);
-      await getPrice();
+// Funci贸n auxiliar para codificar los datos del swap
+const encodeSwapData = (amountIn, amountOutMin, path, to, deadline) => {
+  // Method ID for swapExactTokensForTokens (0x38ed1739)
+  const methodId = '0x38ed1739';
+  
+  // Convertir los n煤meros a hex strings de 32 bytes
+  const amountInHex = amountIn.toString(16).padStart(64, '0');
+  const amountOutMinHex = amountOutMin.toString(16).padStart(64, '0');
+  const toAddressHex = to.slice(2).padStart(64, '0');
+  const deadlineHex = deadline.toString(16).padStart(64, '0');
+  
+  // Offset para el array de path (5 * 32 = 160 = 0xa0)
+  const pathOffsetHex = '00000000000000000000000000000000000000000000000000000000000000a0';
+  
+  // Longitud del array path (2 elementos)
+  const pathLengthHex = '0000000000000000000000000000000000000000000000000000000000000002';
+  
+  // Direcciones del path
+  const pathAddressesHex = path.map(addr => 
+    addr.slice(2).toLowerCase().padStart(64, '0')
+  ).join('');
+  
+  // Concatenar todo
+  return methodId + 
+         amountInHex +
+         amountOutMinHex +
+         pathOffsetHex +
+         toAddressHex +
+         deadlineHex +
+         pathLengthHex +
+         pathAddressesHex;
+};
+
+const SwapDApp = () => {
+  const [account, setAccount] = useState('');
+  const [inputAmount, setInputAmount] = useState('');
+  const [outputAmount, setOutputAmount] = useState('');
+  const [tokenFrom, setTokenFrom] = useState('usdt');
+  const [tokenTo, setTokenTo] = useState('at3');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [price, setPrice] = useState(null);
+  const [swapAnimation, setSwapAnimation] = useState(false);
+  const [balances, setBalances] = useState({
+    usdt: '0',
+    usdc: '0',
+    at3: '0'
+  });
+
+  const tokens = {
+    usdt: { 
+      symbol: 'USDT', 
+      address: USDT_ADDRESS, 
+      decimals: 6,
+      icon: '馃挷'
+    },
+    usdc: { 
+      symbol: 'USDC', 
+      address: USDC_ADDRESS, 
+      decimals: 6,
+      icon: '馃挼'
+    },
+    at3: { 
+      symbol: 'AT3', 
+      address: ATOMICO3_ADDRESS, 
+      decimals: 18,
+      icon: '馃敺'
     }
   };
 
-  const getBalances = async (addr: string) => {
-    if (!window.ethereum) return;
-    const eth = window.ethereum;
-
+  const fetchTokenBalance = async (tokenAddress, decimals) => {
     try {
-      const usdtData = {
-        to: USDT_ADDRESS,
-        data: `0x70a08231${addr.slice(2).padStart(64, '0')}`
-      };
-      const usdtResult = await eth.request({
+      const data = `0x70a08231000000000000000000000000${account.slice(2).toLowerCase()}`;
+      const response = await window.ethereum.request({
         method: 'eth_call',
-        params: [usdtData, 'latest']
+        params: [{
+          to: tokenAddress,
+          data: data
+        }, 'latest']
       });
-      const usdtBal = parseInt(usdtResult, 16) / 1e6;
-      setUsdtBalance(usdtBal.toFixed(2));
-
-      const at3Data = {
-        to: AT3_ADDRESS,
-        data: `0x70a08231${addr.slice(2).padStart(64, '0')}`
-      };
-      const at3Result = await eth.request({
-        method: 'eth_call',
-        params: [at3Data, 'latest']
-      });
-      const at3Bal = parseInt(at3Result, 16) / 1e18;
-      setAt3Balance(at3Bal.toFixed(2));
+      const balance = parseInt(response, 16) / (10 ** decimals);
+      return balance.toFixed(6);
     } catch (err) {
-      console.error('Error balances:', err);
+      console.error('Error fetching balance:', err);
+      return '0';
     }
   };
 
-  const getPrice = async () => {
-    if (!window.ethereum) return;
-    const eth = window.ethereum;
+  const updateBalances = async () => {
+    if (!account) return;
+    
+    const newBalances = {
+      usdt: await fetchTokenBalance(tokens.usdt.address, tokens.usdt.decimals),
+      usdc: await fetchTokenBalance(tokens.usdc.address, tokens.usdc.decimals),
+      at3: await fetchTokenBalance(tokens.at3.address, tokens.at3.decimals)
+    };
+    
+    setBalances(newBalances);
+  };
 
+  const fetchPrice = async () => {
     try {
-      const token0Result = await eth.request({
-        method: 'eth_call',
-        params: [{
-          to: PAIR_ADDRESS,
-          data: '0x0dfe1681'
-        }, 'latest']
-      });
+      const reservesData = {
+        to: ATOMICO3_USDT_PAIR,
+        data: '0x0902f1ac' // getReserves selector
+      };
 
-      const token0 = '0x' + token0Result.slice(26).toLowerCase();
-      const isAt3Token0 = token0 === AT3_ADDRESS.toLowerCase();
-
-      const reservesResult = await eth.request({
+      const reservesResult = await window.ethereum.request({
         method: 'eth_call',
-        params: [{
-          to: PAIR_ADDRESS,
-          data: '0x0902f1ac'
-        }, 'latest']
+        params: [reservesData, 'latest']
       });
 
       const reserve0 = parseInt(reservesResult.slice(2, 66), 16);
       const reserve1 = parseInt(reservesResult.slice(66, 130), 16);
+      
+      // Precio USDT/AT3
+      const pricePerAT3 = (reserve1 / 1e6) / (reserve0 / 1e18);
+      setPrice(pricePerAT3);
 
-      const at3Reserve = isAt3Token0 ? reserve0 : reserve1;
-      const usdtReserve = isAt3Token0 ? reserve1 : reserve0;
-
-      const tokenPrice = (usdtReserve / 1e6) / (at3Reserve / 1e18);
-      setPrice(tokenPrice.toFixed(6));
-      setUpdateTime(new Date().toLocaleTimeString());
+      // Actualizar output amount si hay input
+      if (inputAmount) {
+        if (tokenFrom === 'at3') {
+          setOutputAmount((inputAmount * pricePerAT3).toFixed(6));
+        } else {
+          setOutputAmount((inputAmount / pricePerAT3).toFixed(6));
+        }
+      }
     } catch (err) {
-      console.error('Error price:', err);
+      console.error('Error fetching price:', err);
+    }
+  };
+
+  const handleInputChange = (value) => {
+    setInputAmount(value);
+    if (!value) {
+      setOutputAmount('');
+      return;
+    }
+
+    if (price) {
+      if (tokenFrom === 'at3') {
+        setOutputAmount((value * price).toFixed(6));
+      } else {
+        setOutputAmount((value / price).toFixed(6));
+      }
+    }
+  };
+
+  const swapTokens = () => {
+    const temp = tokenFrom;
+    setTokenFrom(tokenTo);
+    setTokenTo(temp);
+    setInputAmount('');
+    setOutputAmount('');
+  };
+
+  const estimateGas = async (txParams) => {
+    try {
+      console.log('Estimando gas para transacci贸n:', txParams);
+
+      // Primero obtener el precio actual del gas
+      const gasPrice = await window.ethereum.request({
+        method: 'eth_gasPrice'
+      });
+      console.log('Gas Price actual:', gasPrice);
+
+      // Estimar el gas necesario
+      const estimatedGas = await window.ethereum.request({
+        method: 'eth_estimateGas',
+        params: [txParams]
+      });
+      console.log('Gas estimado:', estimatedGas);
+
+      // A帽adir un 50% de margen al gas estimado para mayor seguridad
+      const gasLimit = Math.floor(parseInt(estimatedGas, 16) * 1.5).toString(16);
+      console.log('Gas limit con margen:', gasLimit);
+
+      return {
+        gas: '0x' + gasLimit,
+        gasPrice: gasPrice
+      };
+    } catch (err) {
+      console.error('Error detallado en estimaci贸n de gas:', err);
+      // Si falla la estimaci贸n, usar valores por defecto seguros
+      return {
+        gas: '0x7A120', // 500,000 gas
+        gasPrice: '0x2540BE400' // 10 GWEI
+      };
+    }
+  };
+
+  const waitForTransaction = async (txHash, timeout = 60000) => {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        const receipt = await window.ethereum.request({
+          method: 'eth_getTransactionReceipt',
+          params: [txHash],
+        });
+
+        if (receipt) {
+          // Verificar si la transacci贸n fue exitosa
+          if (receipt.status === '0x1') {
+            return true;
+          } else {
+            throw new Error('Transacci贸n fallida');
+          }
+        }
+
+        // Esperar 2 segundos antes de intentar de nuevo
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (err) {
+        console.error('Error al verificar transacci贸n:', err);
+        throw err;
+      }
+    }
+    
+    throw new Error('Timeout esperando confirmaci贸n de la transacci贸n');
+  };
+
+  const executeSwap = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      setSuccess('');
+      setSwapAnimation(true);
+
+      if (!account) {
+        throw new Error('Wallet no conectada');
+      }
+
+      // Obtener direcci贸n del token que se est谩 vendiendo
+      const tokenAddress = tokens[tokenFrom].address;
+      
+      // Convertir el monto a la cantidad correcta de decimales
+      const decimals = tokens[tokenFrom].decimals;
+      const amountWithDecimals = Math.floor(parseFloat(inputAmount) * (10 ** decimals));
+      
+      // Preparar datos de aprobaci贸n
+      const approveParams = {
+        from: account,
+        to: tokenAddress,
+        data: `0x095ea7b3${ROUTER_ADDRESS.slice(2).padStart(64, '0')}${amountWithDecimals.toString(16).padStart(64, '0')}`
+      };
+
+      // Estimar gas para la aprobaci贸n
+      const approveGas = await estimateGas(approveParams);
+      const approveData = {
+        ...approveParams,
+        ...approveGas
+      };
+
+      // Enviar transacci贸n de aprobaci贸n
+      const approveTxHash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [approveData],
+      });
+
+      // Esperar confirmaci贸n de la aprobaci贸n
+      let approveConfirmed = false;
+      while (!approveConfirmed) {
+        const receipt = await window.ethereum.request({
+          method: 'eth_getTransactionReceipt',
+          params: [approveTxHash],
+        });
+        if (receipt) {
+          approveConfirmed = true;
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      // Crear la data para el swap
+      // Calcular el path correcto seg煤n la direcci贸n del swap
+      const path = [
+        tokenFrom === 'at3' ? ATOMICO3_ADDRESS : (tokenFrom === 'usdt' ? USDT_ADDRESS : USDC_ADDRESS),
+        tokenTo === 'at3' ? ATOMICO3_ADDRESS : (tokenTo === 'usdt' ? USDT_ADDRESS : USDC_ADDRESS)
+      ];
+
+      console.log('Path del swap:', path);
+
+      // Calcular amountOutMin con 1% de slippage
+      const amountOutMin = Math.floor(parseFloat(outputAmount) * 0.99 * (10 ** tokens[tokenTo].decimals));
+      const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutos
+
+      console.log('Par谩metros del swap:', {
+        tokenFrom,
+        tokenTo,
+        amountIn: amountWithDecimals,
+        amountOutMin,
+        path,
+        deadline
+      });
+
+      // Preparar datos del swap
+      const swapParams = {
+        from: account,
+        to: ROUTER_ADDRESS,
+        value: '0x0',
+        data: encodeSwapData(amountWithDecimals, amountOutMin, path, account, deadline)
+      };
+
+      // Estimar gas para el swap
+      const swapGas = await estimateGas(swapParams);
+      const swapData = {
+        ...swapParams,
+        ...swapGas
+      };
+
+      console.log('Swap Parameters:', {
+        amountIn: amountWithDecimals.toString(),
+        amountOutMin: amountOutMin.toString(),
+        path: path,
+        to: account,
+        deadline: deadline,
+        estimatedGas: swapGas
+      });
+
+      // Enviar transacci贸n de swap
+      const swapTxHash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [swapData],
+      });
+
+      // Esperar confirmaci贸n del swap
+      let swapConfirmed = false;
+      while (!swapConfirmed) {
+        const receipt = await window.ethereum.request({
+          method: 'eth_getTransactionReceipt',
+          params: [swapTxHash],
+        });
+        if (receipt) {
+          swapConfirmed = true;
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      // Actualizar balances despu茅s del swap
+      await updateBalances();
+      
+      // Mostrar mensaje de 茅xito
+      setSuccess('隆Swap completado con 茅xito!');
+      
+      // Limpiar campos
+      setInputAmount('');
+      setOutputAmount('');
+      
+    } catch (err) {
+      setError('Error al ejecutar swap: ' + err.message);
+    } finally {
+      setLoading(false);
+      setSwapAnimation(false);
     }
   };
 
   const connectWallet = async () => {
-    if (!window.ethereum) {
-      setError('Instala MetaMask');
-      return;
-    }
-
     try {
-      const eth = window.ethereum;
-      const accounts = await eth.request({ method: 'eth_requestAccounts' });
-      const newAccount = accounts[0];
-      setAccount(newAccount);
-
-      const chainId = await eth.request({ method: 'eth_chainId' });
-      if (chainId !== '0x89') {
-        setError('Conecta a Polygon');
-        try {
-          await eth.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: '0x89' }],
-          });
-        } catch (switchError: any) {
-          if (switchError.code === 4902) {
-            try {
-              await eth.request({
-                method: 'wallet_addEthereumChain',
-                params: [{
-                  chainId: '0x89',
-                  chainName: 'Polygon',
-                  nativeCurrency: {
-                    name: 'MATIC',
-                    symbol: 'MATIC',
-                    decimals: 18
-                  },
-                  rpcUrls: ['https://polygon-rpc.com/'],
-                  blockExplorerUrls: ['https://polygonscan.com/']
-                }]
-              });
-            } catch (addError) {
-              setError('Error al agregar Polygon');
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({ 
+          method: 'eth_requestAccounts' 
+        });
+        setAccount(accounts[0]);
+        
+        const chainId = await window.ethereum.request({ 
+          method: 'eth_chainId' 
+        });
+        
+        if (chainId !== '0x89') {
+          setError('Por favor, conecta tu wallet a la red Polygon');
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: '0x89' }],
+            });
+          } catch (switchError) {
+            if (switchError.code === 4902) {
+              try {
+                await window.ethereum.request({
+                  method: 'wallet_addEthereumChain',
+                  params: [{
+                    chainId: '0x89',
+                    chainName: 'Polygon Mainnet',
+                    nativeCurrency: {
+                      name: 'MATIC',
+                      symbol: 'MATIC',
+                      decimals: 18
+                    },
+                    rpcUrls: ['https://polygon-rpc.com/'],
+                    blockExplorerUrls: ['https://polygonscan.com/']
+                  }]
+                });
+              } catch (addError) {
+                setError('Error al agregar la red Polygon');
+              }
             }
           }
         }
+      } else {
+        setError('Por favor, instala MetaMask');
       }
-
-      await getBalances(newAccount);
-    } catch (err: any) {
-      setError('Error de conexion');
+    } catch (err) {
+      setError('Error al conectar wallet: ' + err.message);
     }
   };
 
   useEffect(() => {
     if (account) {
-      const interval = setInterval(refreshData, 60000);
+      updateBalances();
+      fetchPrice();
+      
+      const interval = setInterval(fetchPrice, 20000);
       return () => clearInterval(interval);
     }
   }, [account]);
 
   useEffect(() => {
     if (window.ethereum) {
-      const eth = window.ethereum;
-
-      eth.on('accountsChanged', async (accounts: string[]) => {
-        const newAccount = accounts[0] || '';
-        setAccount(newAccount);
-        if (newAccount) {
-          await getBalances(newAccount);
-        } else {
-          setUsdtBalance('0.00');
-          setAt3Balance('0.00');
-        }
+      window.ethereum.on('accountsChanged', (accounts) => {
+        setAccount(accounts[0] || '');
       });
 
-      eth.on('chainChanged', (chainId: string) => {
+      window.ethereum.on('chainChanged', (chainId) => {
         if (chainId !== '0x89') {
-          setError('Conecta a Polygon');
+          setError('Por favor, conecta tu wallet a la red Polygon');
         } else {
           setError('');
         }
       });
-
-      getPrice();
     }
   }, []);
 
   return (
-    <div className="container mx-auto p-4">
-      <Card className="max-w-md mx-auto bg-slate-900 border-slate-800">
-        <CardHeader className="pb-3 border-b border-slate-800">
-          <div className="flex justify-between items-center mb-4">
-            <CardTitle className="text-lg font-medium text-gray-200">
-              ATOMICO 3
-            </CardTitle>
-            {account && (
-              <button 
-                onClick={() => setAccount('')}
-                className="text-sm text-gray-400 hover:text-gray-300 flex items-center"
-              >
-                {account.slice(0, 6)}...{account.slice(-4)}
-                <span className="ml-2">Desconectar</span>
-              </button>
-            )}
-          </div>
-          <div className="flex space-x-2">
-            <Button 
-              variant="ghost" 
-              className={`flex-1 ${tradeType === 'buy' ? 'bg-slate-800 text-white' : 'text-gray-400'}`}
-              onClick={() => setTradeType('buy')}
-            >
-              Comprar
-            </Button>
-            <Button 
-              variant="ghost" 
-              className={`flex-1 ${tradeType === 'sell' ? 'bg-slate-800 text-white' : 'text-gray-400'}`}
-              onClick={() => setTradeType('sell')}
-            >
-              Vender
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-6">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md bg-slate-800 border-slate-700">
+        <CardContent className="p-6">
           {!account ? (
             <Button 
               onClick={connectWallet}
@@ -236,101 +477,102 @@ const SwapDApp: React.FC = () => {
               Conectar Wallet
             </Button>
           ) : (
-            <div className="space-y-4">              
-              <div className="bg-slate-800 p-4 rounded-lg">
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-gray-400">
-                    {tradeType === 'buy' ? 'Pagas' : 'Vendes'}
-                  </span>
-                  <span className="text-sm text-gray-400 flex items-center">
-                    <span>Balance: {usdtBalance} USDT</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-2 p-1 h-6 text-gray-400 hover:text-white"
-                      onClick={refreshData}
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </Button>
-                  </span>
-                </div>
-                <div className="flex items-center">
-                  <Input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="bg-transparent border-none text-xl text-white placeholder-gray-500 focus:outline-none focus:ring-0"
-                    placeholder="0.0"
-                  />
-                  <div className="flex items-center bg-slate-700 rounded-lg px-3 py-1">
-                    <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" fill="#26A17B"/>
-                      <text x="12" y="16" textAnchor="middle" fill="white" fontSize="10">$</text>
-                    </svg>
-                    <span className="text-white">USDT</span>
-                  </div>
-                </div>
+            <div className="space-y-4">
+              <div className="text-sm text-gray-400">
+                Conectado: {account.slice(0, 6)}...{account.slice(-4)}
               </div>
-
-              <div className="bg-slate-800 p-4 rounded-lg">
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-gray-400">
-                    Recibes
-                  </span>
-                  <span className="text-sm text-gray-400">
-                    Balance: {at3Balance} AT3
-                  </span>
-                </div>
-                <div className="flex items-center">
-                  <div className="flex-1 text-xl text-white">
-                    {amount && price ? (
-                      tradeType === 'buy' 
-                        ? (parseFloat(amount) / parseFloat(price)).toFixed(6)
-                        : (parseFloat(amount) * parseFloat(price)).toFixed(6)
-                    ) : '0.0'}
-                  </div>
-                  <div className="flex items-center bg-slate-700 rounded-lg px-3 py-1">
-                    <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" fill="#3B82F6"/>
-                      <text x="12" y="16" textAnchor="middle" fill="white" fontSize="8">AT3</text>
-                    </svg>
-                    <span className="text-white">AT3</span>
-                  </div>
-                </div>
-              </div>
-
+              
               {price && (
-                <div className="bg-slate-800/50 p-3 rounded-lg">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Precio:</span>
-                    <span className="text-gray-300">1 AT3 = {price} USDT</span>
-                  </div>
-                  <div className="flex justify-between text-xs mt-1">
-                    <span className="text-gray-500">QuickSwap</span>
-                    <span className="text-gray-500">
-                      Actualizado: {updateTime}
-                    </span>
-                  </div>
+                <div className="text-sm text-gray-400 bg-slate-900 p-2 rounded flex justify-between items-center">
+                  <span>Precio AT3:</span>
+                  <span className="text-blue-400">${price.toFixed(6)} USDT</span>
                 </div>
               )}
+              
+              <div className="bg-slate-900 p-4 rounded-lg space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Pagar:</span>
+                  <span className="text-gray-400">
+                    Balance: {balances[tokenFrom]} {tokens[tokenFrom].symbol}
+                  </span>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    value={inputAmount}
+                    onChange={(e) => handleInputChange(e.target.value)}
+                    className="bg-slate-800 border-none text-white text-lg"
+                    placeholder="0.00"
+                  />
+                  <Button
+                    onClick={() => {/* Token selection logic */}}
+                    className="bg-blue-600 hover:bg-blue-700 min-w-[120px] flex items-center gap-2"
+                  >
+                    {tokens[tokenFrom].icon} {tokens[tokenFrom].symbol}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <Button
+                  onClick={swapTokens}
+                  className={`bg-slate-700 hover:bg-slate-600 rounded-full p-2 transition-transform duration-300 ${
+                    swapAnimation ? 'animate-spin' : ''
+                  }`}
+                >
+                  鈫?
+                </Button>
+              </div>
+
+              <div className="bg-slate-900 p-4 rounded-lg space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Recibir:</span>
+                  <span className="text-gray-400">
+                    Balance: {balances[tokenTo]} {tokens[tokenTo].symbol}
+                  </span>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    value={outputAmount}
+                    className="bg-slate-800 border-none text-white text-lg"
+                    placeholder="0.00"
+                    readOnly
+                  />
+                  <Button
+                    onClick={() => {/* Token selection logic */}}
+                    className="bg-blue-600 hover:bg-blue-700 min-w-[120px] flex items-center gap-2"
+                  >
+                    {tokens[tokenTo].icon} {tokens[tokenTo].symbol}
+                  </Button>
+                </div>
+              </div>
 
               <Button
-                onClick={getPrice}
-                disabled={loading || !amount}
-                className={`w-full h-12 text-lg ${loading || !amount 
-                  ? 'bg-slate-700 text-slate-500' 
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}
+                onClick={executeSwap}
+                disabled={loading || !inputAmount}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
               >
-                {loading ? 'Procesando...' : tradeType === 'buy' ? 'Comprar AT3' : 'Vender AT3'}
+                {loading ? 'Procesando...' : 'Swap'}
               </Button>
 
               {error && (
                 <Alert variant="destructive" className="bg-red-900/50 border border-red-900 text-red-400">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {success && (
+                <Alert className="bg-green-900/50 border border-green-900 text-green-400">
+                  <AlertDescription className="flex items-center gap-2">
+                    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    {success}
+                  </AlertDescription>
                 </Alert>
               )}
             </div>
