@@ -19,6 +19,7 @@ declare const window: WindowWithEthereum;
 const AT3_ADDRESS = '0x22a79a08ddb74a9f1a4ebe5da75300ad9f1aed76';
 const USDT_ADDRESS = '0xc2132D05D31c914a87C6611C10748AEb04B58e8F';
 const PAIR_ADDRESS = '0x2e8f3b0e4ad32317f70f7f79a63a1538ded23fd4';
+const QUICKSWAP_ROUTER = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff';
 
 const SwapDApp: React.FC = () => {
   const [account, setAccount] = useState<string>('');
