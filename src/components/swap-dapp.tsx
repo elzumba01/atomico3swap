@@ -286,13 +286,13 @@ const SwapDApp = () => {
   }, [account]);
 
   return (
-    <div className="min-h-screen bg-blue-950/80 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md bg-blue-950/50 border-blue-800/50 shadow-lg backdrop-blur-sm">
+    <div className="min-h-screen bg-[#020817]/95 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md bg-[#0f1729]/80 border-blue-900/30 shadow-2xl backdrop-blur-sm">
         <CardContent className="p-6">
           {!account ? (
             <Button 
               onClick={connectWallet} 
-              className="w-full bg-blue-800 hover:bg-blue-700 text-white"
+              className="w-full bg-gray-700/90 hover:bg-gray-600/90 text-white shadow-lg hover:shadow-xl transition-all"
             >
               Conectar Wallet
             </Button>
@@ -304,20 +304,20 @@ const SwapDApp = () => {
                 </div>
                 <Button
                   onClick={disconnectWallet}
-                  className="bg-red-700/80 hover:bg-red-600 text-white text-sm px-3 py-1"
+                  className="bg-red-800/80 hover:bg-red-700/80 text-white text-sm px-3 py-1 shadow-md hover:shadow-lg transition-all"
                 >
                   Desconectar
                 </Button>
               </div>
 
               {price && (
-                <div className="text-sm text-blue-200 bg-blue-900/30 p-2 rounded flex justify-between items-center backdrop-blur-sm">
+                <div className="text-sm text-blue-200 bg-[#0f1729]/80 p-2 rounded flex justify-between items-center backdrop-blur-sm border border-blue-900/20 shadow-lg">
                   <span>Precio AT3:</span>
                   <span className="text-blue-300">${price.toFixed(6)} USDT</span>
                 </div>
               )}
 
-              <div className="bg-blue-900/30 p-4 rounded-lg space-y-4 backdrop-blur-sm">
+              <div className="bg-[#0f1729]/80 p-4 rounded-lg space-y-4 backdrop-blur-sm border border-blue-900/20 shadow-lg">
                 <div className="flex items-center justify-between">
                   <span className="text-blue-200">Pagar:</span>
                   <span className="text-blue-200">
@@ -329,11 +329,11 @@ const SwapDApp = () => {
                     type="number"
                     value={inputAmount}
                     onChange={(e) => handleInputChange(e.target.value)}
-                    className="bg-blue-950/50 border-blue-800/30 text-white text-lg flex-1"
+                    className="bg-[#1a2642]/50 border-blue-900/20 text-white text-lg flex-1 shadow-inner"
                     placeholder="0.00"
                   />
                   <Button
-                    className="bg-blue-800 hover:bg-blue-700 min-w-[120px] flex items-center justify-center gap-2"
+                    className="bg-gray-700/90 hover:bg-gray-600/90 min-w-[120px] flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
                   >
                     {tokens[tokenFrom].icon} {tokens[tokenFrom].symbol}
                   </Button>
@@ -349,13 +349,13 @@ const SwapDApp = () => {
                     setInputAmount("");
                     setOutputAmount("");
                   }}
-                  className="bg-blue-800/50 hover:bg-blue-700/50 rounded-full p-2"
+                  className="bg-gray-700/80 hover:bg-gray-600/80 rounded-full p-2 shadow-lg hover:shadow-xl transition-all"
                 >
                   <ArrowRightLeft className="h-5 w-5" />
                 </Button>
               </div>
 
-              <div className="bg-blue-900/30 p-4 rounded-lg space-y-4 backdrop-blur-sm">
+              <div className="bg-[#0f1729]/80 p-4 rounded-lg space-y-4 backdrop-blur-sm border border-blue-900/20 shadow-lg">
                 <div className="flex items-center justify-between">
                   <span className="text-blue-200">Recibir:</span>
                   <span className="text-blue-200">
@@ -366,12 +366,12 @@ const SwapDApp = () => {
                   <Input
                     type="number"
                     value={outputAmount}
-                    className="bg-blue-950/50 border-blue-800/30 text-white text-lg flex-1"
+                    className="bg-[#1a2642]/50 border-blue-900/20 text-white text-lg flex-1 shadow-inner"
                     placeholder="0.00"
                     readOnly
                   />
                   <Button
-                    className="bg-blue-800 hover:bg-blue-700 min-w-[120px] flex items-center justify-center gap-2"
+                    className="bg-gray-700/90 hover:bg-gray-600/90 min-w-[120px] flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
                   >
                     {tokens[tokenTo].icon} {tokens[tokenTo].symbol}
                   </Button>
@@ -381,20 +381,20 @@ const SwapDApp = () => {
               <Button
                 onClick={executeSwap}
                 disabled={loading || !inputAmount}
-                className="w-full bg-blue-800 hover:bg-blue-700 text-white"
+                className="w-full bg-gray-700/90 hover:bg-gray-600/90 text-white shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Procesando..." : "Swap"}
               </Button>
 
               {error && (
-                <Alert variant="destructive" className="bg-red-900/30 border-red-800/50 text-red-300 backdrop-blur-sm">
+                <Alert variant="destructive" className="bg-red-900/20 border border-red-900/30 text-red-300 backdrop-blur-sm shadow-lg">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
               {success && (
-                <Alert className="bg-green-900/30 border-green-800/50 text-green-300 backdrop-blur-sm">
+                <Alert className="bg-green-900/20 border border-green-900/30 text-green-300 backdrop-blur-sm shadow-lg">
                   <AlertDescription className="flex items-center gap-2">
                     <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
